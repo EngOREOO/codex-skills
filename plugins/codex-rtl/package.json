@@ -1,0 +1,21 @@
+{
+  "name": "codex-rtl",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "rtl-arabic-patch.js",
+    "scripts/"
+  ],
+  "scripts": {
+    "install-rtl": "node scripts/install.mjs",
+    "restore": "node scripts/restore.mjs"
+  },
+  "dependencies": {
+    "@electron/asar": "^4.0.1"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,2 @@
+id,client,platform,device_or_browser,role,screen_or_route,state,control_or_action,data_backed,mutation,expected_result,observed_result,status,ui_evidence,network_evidence,backend_evidence,persistence_evidence,accessibility_evidence,build_id,tested_at,tester,defect_id,notes
+CTL-EXAMPLE,example-app,Android,Pixel emulator,student,Login,invalid credentials,Submit,yes,yes,Safe validation appears and no session is created,REPLACE_ME,UNTESTED,,,,,,REPLACE_ME,REPLACE_ME,REPLACE_ME,,Delete this example after inventorying the real product

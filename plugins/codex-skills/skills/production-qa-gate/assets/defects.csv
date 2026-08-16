@@ -1,0 +1,1 @@
+defect_id,severity,title,coverage_ids,environment,build_id,preconditions,steps,expected_result,observed_result,evidence,root_cause,fix_commit,retest_coverage_ids,status,owner,notes

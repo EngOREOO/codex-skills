@@ -1,0 +1,25 @@
+{
+  "name": "filament-optimization-specialist",
+  "version": "0.1.0",
+  "description": "Filament PHP specialist for restructuring resources, dashboards, tables, forms, navigation, and admin UX.",
+  "author": {
+    "name": "MM Tech Store"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Filament Optimization Specialist",
+    "shortDescription": "Restructure Filament admin UX for real usability.",
+    "longDescription": "Expert in high-impact Filament PHP admin optimization: resource structure, form information architecture, tables, dashboards, navigation groups, report pages, filters, exports, and production-ready admin workflows.",
+    "developerName": "MM Tech Store",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Filament resources",
+      "Filament tables and filters",
+      "Filament forms",
+      "Filament dashboards",
+      "Admin navigation UX",
+      "Report pages and exports"
+    ],
+    "defaultPrompt": "Use Filament Optimization Specialist to design and implement a production-ready Filament resource."
+  }
+}

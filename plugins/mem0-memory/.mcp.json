@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "mem0": {
+      "url": "https://mem0.codiaumx.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${MEM0_API_KEY}"
+      }
+    }
+  }
+}

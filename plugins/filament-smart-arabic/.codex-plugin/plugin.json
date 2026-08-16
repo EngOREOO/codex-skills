@@ -1,0 +1,25 @@
+{
+  "name": "filament-smart-arabic",
+  "version": "0.1.0",
+  "description": "Smart Arabic localization specialist for Filament dashboards, resources, forms, tables, actions, reports, and CRM/LMS admin terminology.",
+  "author": {
+    "name": "MM Tech Store"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Filament Smart Arabic",
+    "shortDescription": "Localize Filament admin panels into natural Arabic.",
+    "longDescription": "Filament Smart Arabic helps Codex convert Filament dashboards, resources, forms, tables, filters, actions, reports, notifications, empty states, and CRM/LMS terminology into smart, natural Arabic instead of literal translation.",
+    "developerName": "MM Tech Store",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Filament Arabic localization",
+      "Smart admin terminology",
+      "CRM and LMS glossary design",
+      "Arabic UX microcopy",
+      "RTL wording review",
+      "Translation quality guard"
+    ],
+    "defaultPrompt": "Use Filament Smart Arabic to localize this Filament dashboard into natural Arabic."
+  }
+}

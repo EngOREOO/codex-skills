@@ -1,0 +1,4 @@
+interface:
+  display_name: "Production QA Gate"
+  short_description: "Prove every production path manually"
+  default_prompt: "Use $production-qa-gate to perform and evidence a complete manual production-readiness audit."

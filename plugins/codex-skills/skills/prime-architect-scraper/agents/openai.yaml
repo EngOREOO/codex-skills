@@ -1,0 +1,4 @@
+interface:
+  display_name: "Prime Architect Scraper"
+  short_description: "Build resilient, stealthy web extractors"
+  default_prompt: "Use $prime-architect-scraper to design a stealthy, schema-first extraction engine for this target site."

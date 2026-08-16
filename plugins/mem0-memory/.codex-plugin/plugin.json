@@ -1,0 +1,19 @@
+{
+  "name": "mem0-memory",
+  "version": "0.1.0",
+  "description": "Mem0 Memory plugin",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Mem0 Memory",
+    "shortDescription": "Use Mem0 Memory in Codex.",
+    "longDescription": "Mem0 Memory adds a local Codex plugin scaffold.",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Help me use Mem0 Memory."
+  },
+  "mcpServers": "./.mcp.json"
+}

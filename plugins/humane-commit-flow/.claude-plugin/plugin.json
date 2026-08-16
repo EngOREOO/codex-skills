@@ -1,0 +1,8 @@
+{
+  "name": "humane-commit-flow",
+  "version": "0.1.0",
+  "description": "Hands completed work to Codex for atomic commits, guard review, and safe push.",
+  "author": {
+    "name": "Local developer"
+  }
+}

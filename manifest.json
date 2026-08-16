@@ -1,0 +1,27 @@
+{
+  "name": "codex-skills-export",
+  "version": "1.0.0",
+  "generatedFor": "Codex CLI",
+  "generatedOn": "2026-08-16",
+  "canonicalSkillCount": 295,
+  "skillMergePolicy": "~/.agents/skills wins on duplicate names; ~/.codex/skills contributes unique skills.",
+  "plugins": [
+    "codex-skills",
+    "arabic-rtl-ui",
+    "backend-architect",
+    "codex-rtl",
+    "devops-automator",
+    "filament-optimization-specialist",
+    "filament-smart-arabic",
+    "humane-commit-flow",
+    "mem0",
+    "mem0-memory",
+    "senior-developer"
+  ],
+  "excluded": [
+    "OpenAI and other vendor marketplace caches",
+    "node_modules and Python __pycache__ directories",
+    "nested .git directories",
+    "the ChiledSafty workspace evaluation files"
+  ]
+}

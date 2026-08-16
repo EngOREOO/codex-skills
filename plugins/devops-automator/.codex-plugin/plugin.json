@@ -1,0 +1,26 @@
+{
+  "name": "devops-automator",
+  "version": "0.1.0",
+  "description": "DevOps automation specialist for CI/CD pipelines, server deployments, monitoring, rollback, and infrastructure workflows.",
+  "author": {
+    "name": "MM Tech Store"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "DevOps Automator",
+    "shortDescription": "Build reliable GitHub-to-server deployment pipelines.",
+    "longDescription": "DevOps Automator helps Codex design and implement CI/CD pipelines, SSH-based deployments, Docker and Laravel release flows, health checks, rollback plans, secrets handling, monitoring, and production operations automation.",
+    "developerName": "MM Tech Store",
+    "category": "Developer Tools",
+    "capabilities": [
+      "CI/CD pipeline design",
+      "GitHub Actions automation",
+      "SSH server deployment",
+      "Docker deployment workflows",
+      "Laravel production release checks",
+      "Rollback and health check planning",
+      "Monitoring and alerting guidance"
+    ],
+    "defaultPrompt": "Use DevOps Automator to create a reliable CI/CD pipeline from GitHub to my server."
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "backend-architect",
+  "version": "0.1.0",
+  "description": "Senior backend architect for data modeling, scalable Laravel architecture, APIs, security, performance, and reliability.",
+  "author": {
+    "name": "MM Tech Store"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Backend Architect",
+    "shortDescription": "Design robust backend models and workflows.",
+    "longDescription": "Senior backend architect specializing in scalable system design, database schema architecture, reporting models, APIs, security, observability, performance, migration safety, and Laravel backend structure.",
+    "developerName": "MM Tech Store",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Data modeling",
+      "Laravel architecture",
+      "Reporting schema design",
+      "API design",
+      "Security and permissions",
+      "Performance and indexing"
+    ],
+    "defaultPrompt": "Use Backend Architect to design the backend model and data flow for this feature."
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "arabic-rtl-ui",
+  "version": "0.1.0",
+  "description": "Makes Arabic and Arabic-English interfaces RTL by default while preserving readable LTR islands.",
+  "author": {
+    "name": "MM Tech Store"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Arabic RTL UI",
+    "shortDescription": "RTL-first rules for Arabic and bilingual interfaces.",
+    "longDescription": "Guides Codex to build Arabic and Arabic-English interfaces with RTL page flow, correct logical spacing, bidi-safe text, and accessible component behavior.",
+    "developerName": "MM Tech Store",
+    "category": "Developer Tools",
+    "capabilities": ["UI guidance", "RTL", "Accessibility"],
+    "defaultPrompt": [
+      "Make this Arabic interface fully RTL.",
+      "Audit this bilingual UI for RTL issues.",
+      "Convert this layout to bidi-safe logical CSS."
+    ],
+    "brandColor": "#0F766E"
+  }
+}

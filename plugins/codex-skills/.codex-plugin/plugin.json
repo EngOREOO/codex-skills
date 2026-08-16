@@ -1,0 +1,34 @@
+{
+  "name": "codex-skills",
+  "version": "1.0.0",
+  "description": "Portable bundle of the local Codex skills collection.",
+  "author": {
+    "name": "EngOREOO",
+    "url": "https://github.com/EngOREOO"
+  },
+  "homepage": "https://github.com/EngOREOO/codex-skills",
+  "repository": "https://github.com/EngOREOO/codex-skills",
+  "keywords": [
+    "codex",
+    "skills",
+    "developer-tools",
+    "security-research",
+    "arabic"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Codex Skills Bundle",
+    "shortDescription": "Install the portable local Codex skills collection.",
+    "longDescription": "A merged, portable export of the local Codex skills tree. The bundle is designed for installation through a Codex marketplace and preserves each skill's references and supporting files.",
+    "developerName": "EngOREOO",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Coding workflows",
+      "Architecture",
+      "Frontend and Arabic RTL",
+      "Testing and QA",
+      "Authorized security research"
+    ],
+    "defaultPrompt": "Use the relevant skill from the Codex Skills Bundle for this task."
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "name": "codex-rtl",
+  "version": "0.1.0+codex.20260716153919",
+  "description": "Arabic RTL support and automatic repair for the Codex desktop interface.",
+  "author": {
+    "name": "EngOREOO",
+    "url": "https://github.com/EngOREOO"
+  },
+  "homepage": "https://github.com/EngOREOO/Codex-RTL",
+  "repository": "https://github.com/EngOREOO/Codex-RTL",
+  "license": "MIT",
+  "keywords": [
+    "arabic",
+    "rtl",
+    "codex",
+    "macos"
+  ],
+  "interface": {
+    "displayName": "Codex RTL",
+    "shortDescription": "Arabic RTL support for Codex desktop.",
+    "longDescription": "Applies and maintains the unofficial EngOREOO Arabic RTL patch for the local Codex desktop interface.",
+    "developerName": "EngOREOO",
+    "category": "Productivity",
+    "capabilities": [
+      "Arabic RTL",
+      "Automatic repair"
+    ],
+    "defaultPrompt": [
+      "Check the Codex RTL patch status.",
+      "Restore the original Codex interface."
+    ]
+  }
+}

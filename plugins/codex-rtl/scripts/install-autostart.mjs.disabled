@@ -1,0 +1,52 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+if (process.platform !== "darwin") process.exit(0);
+
+const quiet = process.argv.includes("--quiet");
+const pluginRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const label = "com.engoreoo.codex-rtl";
+const uid = process.getuid();
+const launchAgents = path.join(os.homedir(), "Library", "LaunchAgents");
+const plistPath = path.join(launchAgents, `${label}.plist`);
+const watcher = path.join(pluginRoot, "scripts", "watch-rtl.sh");
+const node = process.execPath;
+const logPath = path.join(os.tmpdir(), "codex-rtl-watch.log");
+
+const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>${label}</string>
+  <key>ProgramArguments</key>
+  <array><string>/bin/bash</string><string>${watcher}</string></array>
+  <key>EnvironmentVariables</key>
+  <dict><key>NODE_BIN</key><string>${node}</string></dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>${logPath}</string>
+  <key>StandardErrorPath</key><string>${logPath}</string>
+</dict>
+</plist>
+`;
+
+fs.mkdirSync(launchAgents, { recursive: true });
+const existing = fs.existsSync(plistPath) ? fs.readFileSync(plistPath, "utf8") : "";
+if (existing !== xml) {
+  try {
+    execFileSync("launchctl", ["bootout", `gui/${uid}/${label}`], { stdio: "ignore" });
+  } catch {}
+  fs.writeFileSync(plistPath, xml);
+  execFileSync("launchctl", ["bootstrap", `gui/${uid}`, plistPath], { stdio: "ignore" });
+} else {
+  try {
+    execFileSync("launchctl", ["kickstart", `gui/${uid}/${label}`], { stdio: "ignore" });
+  } catch {
+    execFileSync("launchctl", ["bootstrap", `gui/${uid}`, plistPath], { stdio: "ignore" });
+  }
+}
+
+if (!quiet) console.log(`Codex RTL monitor enabled: ${plistPath}`);

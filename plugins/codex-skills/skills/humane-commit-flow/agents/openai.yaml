@@ -1,0 +1,4 @@
+interface:
+  display_name: "Humane Commit Flow"
+  short_description: "Create atomic commits, run guards, and push safely"
+  default_prompt: "Use $humane-commit-flow to split the finished work into logical commits, run applicable guard skills, and push safely."

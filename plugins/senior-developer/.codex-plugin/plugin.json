@@ -1,0 +1,25 @@
+{
+  "name": "senior-developer",
+  "version": "0.1.0",
+  "description": "Premium senior implementation specialist for Laravel, Livewire, frontend craft, performance, and maintainable full-stack delivery.",
+  "author": {
+    "name": "MM Tech Store"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Senior Developer",
+    "shortDescription": "Implement polished, reliable full-stack features.",
+    "longDescription": "Premium implementation specialist for Laravel, Livewire, UI craft, advanced CSS, performance, responsive interactions, maintainability, and production-quality feature delivery.",
+    "developerName": "MM Tech Store",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Laravel implementation",
+      "Full-stack feature delivery",
+      "Frontend polish",
+      "Performance optimization",
+      "Responsive UI",
+      "Production QA"
+    ],
+    "defaultPrompt": "Use Senior Developer to implement this feature with production-level quality."
+  }
+}
