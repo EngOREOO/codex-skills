@@ -1,0 +1,4 @@
+interface:
+  display_name: "Video to Reusable Skill"
+  short_description: "Study videos and build reusable Codex skills"
+  default_prompt: "Use $video-to-skill to study this video and turn reliable lessons into a reusable skill."

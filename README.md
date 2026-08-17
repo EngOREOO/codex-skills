@@ -29,7 +29,7 @@ Restart Codex after installation. Use `codex plugin list` to verify the installe
 
 ## What's included
 
-- `codex-skills`: the merged portable bundle of 295 canonical skills.
+- `codex-skills`: the merged portable bundle of 296 canonical skills.
 - `arabic-rtl-ui`, `backend-architect`, `devops-automator`, `filament-*`, and `senior-developer`.
 - `humane-commit-flow` for guarded commits and authorized pushes.
 - `codex-rtl`, a macOS-specific Codex desktop RTL utility; install it only when you intend to use that patch.
