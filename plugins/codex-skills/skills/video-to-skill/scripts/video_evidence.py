@@ -262,6 +262,15 @@ def choose_caption(files: list[Path], languages: str) -> Path | None:
     return sorted(files)[0]
 
 
+def run_command(command: list[str], failure: str) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip().splitlines()
+        tail = "\n".join(detail[-8:])
+        fail(f"{failure}\n{tail}")
+    return result
+
+
 def collect(args: argparse.Namespace) -> None:
     output_dir = Path(args.out).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -285,11 +294,7 @@ def collect(args: argparse.Namespace) -> None:
         "--",
         args.url,
     ]
-    result = subprocess.run(command, capture_output=True, text=True, check=False)
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout).strip().splitlines()
-        tail = "\n".join(detail[-8:])
-        fail(f"yt-dlp could not collect the source\n{tail}")
+    run_command(command, "yt-dlp could not collect the source")
 
     info_files = sorted(output_dir.glob("video*.info.json"))
     caption = choose_caption(sorted(output_dir.glob("*.vtt")), args.languages)
@@ -317,6 +322,80 @@ def collect(args: argparse.Namespace) -> None:
         fail("the source has no usable VTT captions; provide a transcript or local media")
 
 
+def download_video(args: argparse.Namespace) -> None:
+    output_dir = Path(args.out).expanduser().resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    executable = shutil.which("yt-dlp")
+    if executable is None:
+        fail("yt-dlp is required for visual sampling; install it or provide a local video")
+    if args.max_height < 144:
+        fail("--max-height must be at least 144")
+    selector = (
+        f"worst[ext=mp4][height<={args.max_height}]/"
+        f"worst[height<={args.max_height}]/worst"
+    )
+    command = [
+        executable,
+        "--no-playlist",
+        "--format",
+        selector,
+        "--output",
+        str(output_dir / "video.%(ext)s"),
+        "--",
+        args.url,
+    ]
+    run_command(command, "yt-dlp could not download the low-resolution visual source")
+    candidates = sorted(
+        path
+        for path in output_dir.glob("video.*")
+        if path.suffix.lower() in {".mp4", ".mkv", ".webm", ".mov"}
+    )
+    if not candidates:
+        fail(f"yt-dlp completed but no video file was found in {output_dir}")
+    print(json.dumps({"video": str(candidates[0]), "max_height": args.max_height}))
+
+
+def sample_frames(args: argparse.Namespace) -> None:
+    input_path = Path(args.input).expanduser().resolve()
+    output_dir = Path(args.out).expanduser().resolve()
+    if not input_path.is_file():
+        fail(f"video file does not exist: {input_path}")
+    if args.every_seconds <= 0 or args.max_width < 160:
+        fail("--every-seconds must be positive and --max-width must be at least 160")
+    executable = shutil.which("ffmpeg")
+    if executable is None:
+        fail("ffmpeg is required for frame sampling; provide still images or install ffmpeg")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    filter_graph = f"fps=1/{args.every_seconds},scale={args.max_width}:-2"
+    command = [
+        executable,
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-i",
+        str(input_path),
+        "-vf",
+        filter_graph,
+        "-q:v",
+        "3",
+        str(output_dir / "frame-%05d.jpg"),
+    ]
+    run_command(command, "ffmpeg could not sample frames")
+    frames = sorted(output_dir.glob("frame-*.jpg"))
+    if not frames:
+        fail("ffmpeg produced no frames")
+    print(
+        json.dumps(
+            {
+                "frames": len(frames),
+                "directory": str(output_dir),
+                "every_seconds": args.every_seconds,
+            }
+        )
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -326,6 +405,23 @@ def build_parser() -> argparse.ArgumentParser:
     collect_parser.add_argument("--out", required=True)
     collect_parser.add_argument("--languages", default="en.*,ar.*")
     collect_parser.set_defaults(handler=collect)
+
+    video_parser = subparsers.add_parser(
+        "video", help="download an explicitly requested low-resolution visual source"
+    )
+    video_parser.add_argument("--url", required=True)
+    video_parser.add_argument("--out", required=True)
+    video_parser.add_argument("--max-height", type=int, default=720)
+    video_parser.set_defaults(handler=download_video)
+
+    frames_parser = subparsers.add_parser(
+        "frames", help="sample timestamp-ordered still frames from a local video"
+    )
+    frames_parser.add_argument("--input", required=True)
+    frames_parser.add_argument("--out", required=True)
+    frames_parser.add_argument("--every-seconds", type=int, default=30)
+    frames_parser.add_argument("--max-width", type=int, default=1280)
+    frames_parser.set_defaults(handler=sample_frames)
 
     chunk_parser = subparsers.add_parser("chunk", help="create bounded evidence chunks offline")
     chunk_parser.add_argument("--input", required=True)

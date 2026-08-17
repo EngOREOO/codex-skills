@@ -58,7 +58,7 @@ Use this contract for every `reports/<chunk-id>.json` file. The contract keeps a
 
 ## Evidence rules
 
-1. Use the exact chunk ID and the nearest available timestamp in every pointer. For plain text without timestamps, use `chunk-id@untimed`.
+1. Use the exact chunk ID and the nearest available timestamp in every pointer. For visual evidence, use a frame filename plus approximate time, such as `frame-00012.jpg@00:06:00`. For plain text without timestamps, use `chunk-id@untimed`.
 2. Keep quotes short and necessary. Prefer paraphrase; never copy a full transcript or a long passage into the report.
 3. Do not turn a speaker's claim into a verified fact merely because it sounds authoritative. Record “the speaker claims ...” if independent verification is unavailable.
 4. Put missing prerequisites, omitted commands, unavailable credentials, and unclear screenshots in `unknowns`.

@@ -62,7 +62,25 @@ python3 <video-to-skill>/scripts/video_evidence.py collect \
 
 If `yt-dlp` is unavailable, report the exact missing dependency and ask the user to install it or provide a transcript. If captions are absent, save the metadata, explain the limitation, and stop before synthesis. Do not silently substitute a guessed summary.
 
-### 4. Chunk the evidence
+### 4. Keep a visual evidence track when needed
+
+Captions do not contain code, diagrams, UI state, or gestures. Only when the user has permission to access the source and visual details matter, download a low-resolution local copy and sample still frames:
+
+```bash
+python3 <video-to-skill>/scripts/video_evidence.py video \
+  --url "https://www.youtube.com/watch?v=..." \
+  --out "video-studies/<slug>/source/video" \
+  --max-height 720
+
+python3 <video-to-skill>/scripts/video_evidence.py frames \
+  --input "video-studies/<slug>/source/video/video.mp4" \
+  --out "video-studies/<slug>/frames" \
+  --every-seconds 30
+```
+
+Inspect frames with the available image capability. Report visual observations with frame filenames and approximate timestamps, using the same confidence and unknown rules as transcript evidence. If the model cannot inspect images, say so and do not infer what the screen shows. Delete or keep the local video according to the user's rights and storage policy; never copy it into the generated skill.
+
+### 5. Chunk the evidence
 
 Use 600–900 words per chunk with a small overlap. The helper preserves cue timestamps and emits a machine-readable manifest:
 
@@ -77,7 +95,7 @@ python3 <video-to-skill>/scripts/video_evidence.py chunk \
 
 Read one chunk at a time. First skim the manifest and chapter metadata; then process relevant chunks deeply. Preserve the chunk ID and time range in every report.
 
-### 5. Produce one report per chunk
+### 6. Produce one report per chunk
 
 For each chunk, write `reports/<chunk-id>.json` using the contract in [evidence-contract.md](references/evidence-contract.md). The report must contain:
 
@@ -94,7 +112,7 @@ Use this fixed worker instruction for a cheap model:
 
 Reject a report that is not valid JSON, lacks evidence pointers, or presents an inference as a fact. Repair it from the same chunk rather than allowing the error into consolidation.
 
-### 6. Reconcile before teaching
+### 7. Reconcile before teaching
 
 After all relevant chunks are reported:
 
@@ -107,7 +125,7 @@ After all relevant chunks are reported:
 
 Require a source pointer for every generated skill rule. If coverage is weak, generate a study report and ask for another source instead of making a broad skill.
 
-### 7. Create the reusable skill
+### 8. Create the reusable skill
 
 Create a name under 64 characters using lowercase letters, digits, and hyphens. The name should describe the capability, not the video: prefer `laravel-queue-debugging` over `youtube-lesson-3`.
 
@@ -133,7 +151,7 @@ Write only distilled, reusable knowledge into the generated `SKILL.md`. Its fron
 
 Put detailed source notes in a one-level `references/` file. Do not include the full transcript. Do not copy a skill merely because the video uses confident language; the skill must have a repeatable procedure and evidence-backed checks.
 
-### 8. Validate, register, and reuse
+### 9. Validate, register, and reuse
 
 Validate the generated skill before installing it:
 
@@ -188,5 +206,5 @@ If any answer is “no,” produce a limitation report and stop at the last trus
 
 - [evidence-contract.md](references/evidence-contract.md) — JSON report and claim rules.
 - [generated-skill-contract.md](references/generated-skill-contract.md) — structure and reuse rules for generated skills.
-- `scripts/video_evidence.py` — collect metadata/captions and create bounded timestamped chunks.
+- `scripts/video_evidence.py` — collect metadata/captions, optionally download low-resolution video, sample frames, and create bounded timestamped chunks.
 - `scripts/skill_registry.py` — register and search learned skills idempotently.
