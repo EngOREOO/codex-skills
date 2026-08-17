@@ -10,6 +10,7 @@ import re
 import sys
 import time
 from collections import deque
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
@@ -43,20 +44,22 @@ def atomic_write(path: Path, text: str) -> None:
     temporary.replace(path)
 
 
-def normalize_url(value: str) -> str:
-    value, _ = urldefrag(value.strip())
-    parsed = urlparse(value)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError(f"only public HTTP(S) URLs are supported: {value}")
-    normalized = parsed._replace(scheme=parsed.scheme.lower(), netloc=parsed.netloc.lower())
-    return urlunparse(normalized)
+def normalize_url(raw_url: str) -> str:
+    defragmented_url, _ = urldefrag(raw_url.strip())
+    parsed_url = urlparse(defragmented_url)
+    if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
+        raise ValueError(f"only public HTTP(S) URLs are supported: {defragmented_url}")
+    normalized_url = parsed_url._replace(
+        scheme=parsed_url.scheme.lower(), netloc=parsed_url.netloc.lower()
+    )
+    return urlunparse(normalized_url)
 
 
-def same_origin(left: str, right: str) -> bool:
-    left_parsed = urlparse(left)
-    right_parsed = urlparse(right)
-    return (left_parsed.scheme.lower(), left_parsed.netloc.lower()) == (
-        right_parsed.scheme.lower(), right_parsed.netloc.lower()
+def same_origin(left_url: str, right_url: str) -> bool:
+    left_parts = urlparse(left_url)
+    right_parts = urlparse(right_url)
+    return (left_parts.scheme.lower(), left_parts.netloc.lower()) == (
+        right_parts.scheme.lower(), right_parts.netloc.lower()
     )
 
 
@@ -69,11 +72,11 @@ def default_path_prefix(url: str) -> str:
 
 
 def normalize_text(text: str) -> str:
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
-    text = re.sub(r"[ \t]+", " ", text)
-    text = re.sub(r" *\n *", "\n", text)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip() + "\n"
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    normalized = re.sub(r"[ \t]+", " ", normalized)
+    normalized = re.sub(r" *\n *", "\n", normalized)
+    normalized = re.sub(r"\n{3,}", "\n\n", normalized)
+    return normalized.strip() + "\n"
 
 
 class PageParser(HTMLParser):
@@ -108,11 +111,11 @@ class PageParser(HTMLParser):
         elif lowered in BLOCK_TAGS:
             self.parts.append("\n")
 
-    def handle_data(self, data: str) -> None:
-        if self.in_title and data.strip():
-            self.title_parts.append(data.strip())
-        if self.hidden_depth == 0 and data.strip():
-            self.parts.append(data)
+    def handle_data(self, page_text: str) -> None:
+        if self.in_title and page_text.strip():
+            self.title_parts.append(page_text.strip())
+        if self.hidden_depth == 0 and page_text.strip():
+            self.parts.append(page_text)
 
     @property
     def title(self) -> str:
@@ -123,63 +126,286 @@ class PageParser(HTMLParser):
         return normalize_text(" ".join(self.parts))
 
 
-def load_robots(start_url: str, user_agent: str, timeout: float) -> tuple[RobotFileParser, dict[str, Any]]:
-    parsed = urlparse(start_url)
-    robots_url = urlunparse((parsed.scheme, parsed.netloc, "/robots.txt", "", "", ""))
-    parser = RobotFileParser()
-    parser.set_url(robots_url)
-    metadata: dict[str, Any] = {"url": robots_url, "status": "unknown"}
+@dataclass(frozen=True)
+class CrawlItem:
+    url: str
+    depth: int
+    parent_url: str | None
+
+
+@dataclass(frozen=True)
+class FetchedPage:
+    final_url: str
+    status: int
+    content_type: str
+    body: bytes
+
+
+@dataclass(frozen=True)
+class CrawlConfig:
+    start_url: str
+    output_dir: Path
+    path_prefix: str
+    whole_origin: bool
+    user_agent: str
+    timeout: float
+    max_bytes: int
+    max_pages: int
+    max_depth: int
+    delay: float
+    robots: RobotFileParser
+    robots_metadata: dict[str, Any]
+
+
+@dataclass
+class CrawlState:
+    queue: deque[CrawlItem]
+    queued_urls: set[str]
+    visited_urls: set[str] = field(default_factory=set)
+    pages: list[dict[str, Any]] = field(default_factory=list)
+    failures: list[dict[str, Any]] = field(default_factory=list)
+    content_origins: dict[str, str] = field(default_factory=dict)
+    last_request_at: float = 0.0
+
+
+def load_robots(
+    start_url: str, user_agent: str, timeout: float
+) -> tuple[RobotFileParser, dict[str, Any]]:
+    parsed_url = urlparse(start_url)
+    robots_url = urlunparse((parsed_url.scheme, parsed_url.netloc, "/robots.txt", "", "", ""))
+    robots = RobotFileParser()
+    robots.set_url(robots_url)
+    robots_metadata: dict[str, Any] = {"url": robots_url, "status": "unknown"}
     request = Request(robots_url, headers={"User-Agent": user_agent, "Accept": "text/plain"})
     try:
         with urlopen(request, timeout=timeout) as response:
-            data = response.read(1024 * 1024 + 1)
-            if len(data) > 1024 * 1024:
+            robots_body = response.read(1024 * 1024 + 1)
+            if len(robots_body) > 1024 * 1024:
                 fail("robots.txt exceeds 1 MiB")
-            text = data.decode("utf-8", errors="replace")
-            parser.parse(text.splitlines())
-            metadata.update({"status": int(getattr(response, "status", 200)), "sha256": hashlib.sha256(data).hexdigest()})
+            robots.parse(robots_body.decode("utf-8", errors="replace").splitlines())
+            robots_metadata.update({
+                "status": int(getattr(response, "status", 200)),
+                "sha256": hashlib.sha256(robots_body).hexdigest(),
+            })
     except HTTPError as exc:
-        if exc.code == 404:
-            parser.parse([])
-            metadata["status"] = 404
-        else:
+        if exc.code != 404:
             fail(f"cannot verify robots policy ({exc.code}) at {robots_url}")
+        robots.parse([])
+        robots_metadata["status"] = 404
     except URLError as exc:
         fail(f"cannot verify robots policy at {robots_url}: {exc.reason}")
-    return parser, metadata
+    return robots, robots_metadata
 
 
-def allowed_url(candidate: str, start_url: str, path_prefix: str, whole_origin: bool) -> str | None:
+def allowed_url(
+    candidate_url: str, start_url: str, path_prefix: str, whole_origin: bool
+) -> str | None:
     try:
-        normalized = normalize_url(candidate)
+        normalized_url = normalize_url(candidate_url)
     except ValueError:
         return None
-    if not same_origin(normalized, start_url):
+    if not same_origin(normalized_url, start_url):
         return None
-    if not whole_origin and not (urlparse(normalized).path or "/").startswith(path_prefix):
+    if not whole_origin and not (urlparse(normalized_url).path or "/").startswith(path_prefix):
         return None
-    return normalized
+    return normalized_url
 
 
-def fetch_page(url: str, user_agent: str, timeout: float, max_bytes: int) -> tuple[str, int, str, bytes]:
-    request = Request(
-        url,
-        headers={
-            "User-Agent": user_agent,
-            "Accept": "text/html, text/plain, application/json, application/xml;q=0.9",
-        },
-    )
+def fetch_page(url: str, user_agent: str, timeout: float, max_bytes: int) -> FetchedPage:
+    request = Request(url, headers={
+        "User-Agent": user_agent,
+        "Accept": "text/html, text/plain, application/json, application/xml;q=0.9",
+    })
     with urlopen(request, timeout=timeout) as response:
-        final_url = normalize_url(response.geturl())
-        status = int(getattr(response, "status", 200))
-        content_type = response.headers.get_content_type().lower()
-        data = response.read(max_bytes + 1)
-        if len(data) > max_bytes:
-            fail(f"response exceeds --max-bytes: {url}")
-        return final_url, status, content_type, data
+        response_body = response.read(max_bytes + 1)
+        if len(response_body) > max_bytes:
+            raise ValueError(f"response exceeds --max-bytes: {url}")
+        return FetchedPage(
+            final_url=normalize_url(response.geturl()),
+            status=int(getattr(response, "status", 200)),
+            content_type=response.headers.get_content_type().lower(),
+            body=response_body,
+        )
 
 
-def main() -> int:
+def validate_options(options: argparse.Namespace) -> None:
+    if not 1 <= options.max_pages <= 100:
+        fail("--max-pages must be between 1 and 100")
+    if not 0 <= options.max_depth <= 4:
+        fail("--max-depth must be between 0 and 4")
+    if not 0.25 <= options.delay <= 30:
+        fail("--delay must be between 0.25 and 30 seconds")
+    if not 1024 <= options.max_bytes <= 50 * 1024 * 1024:
+        fail("--max-bytes must be between 1 KiB and 50 MiB")
+
+
+def build_config(options: argparse.Namespace) -> CrawlConfig:
+    validate_options(options)
+    try:
+        start_url = normalize_url(options.url)
+    except ValueError as exc:
+        fail(str(exc))
+    output_dir = options.out.expanduser().resolve()
+    (output_dir / "raw").mkdir(parents=True, exist_ok=True)
+    (output_dir / "text").mkdir(parents=True, exist_ok=True)
+    robots, robots_metadata = load_robots(start_url, options.user_agent, options.timeout)
+    crawl_delay = robots.crawl_delay(options.user_agent) or robots.crawl_delay("*") or 0
+    return CrawlConfig(
+        start_url=start_url,
+        output_dir=output_dir,
+        path_prefix=default_path_prefix(start_url),
+        whole_origin=options.whole_origin,
+        user_agent=options.user_agent,
+        timeout=options.timeout,
+        max_bytes=options.max_bytes,
+        max_pages=options.max_pages,
+        max_depth=options.max_depth,
+        delay=max(options.delay, float(crawl_delay)),
+        robots=robots,
+        robots_metadata=robots_metadata,
+    )
+
+
+def initial_state(start_url: str) -> CrawlState:
+    start_item = CrawlItem(url=start_url, depth=0, parent_url=None)
+    return CrawlState(queue=deque([start_item]), queued_urls={start_url})
+
+
+def manifest_payload(config: CrawlConfig, state: CrawlState) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "start_url": config.start_url,
+        "path_prefix": config.path_prefix,
+        "whole_origin": config.whole_origin,
+        "robots": config.robots_metadata,
+        "pages": state.pages,
+        "failures": state.failures,
+    }
+
+
+def write_manifest(config: CrawlConfig, state: CrawlState) -> None:
+    manifest_text = json.dumps(manifest_payload(config, state), ensure_ascii=False, indent=2) + "\n"
+    atomic_write(config.output_dir / "manifest.json", manifest_text)
+
+
+def wait_for_rate_limit(config: CrawlConfig, state: CrawlState) -> None:
+    elapsed = time.monotonic() - state.last_request_at
+    if elapsed < config.delay:
+        time.sleep(config.delay - elapsed)
+
+
+def extract_page(fetched_page: FetchedPage) -> tuple[str, str, str, list[str]] | None:
+    if fetched_page.content_type == "text/html":
+        page_parser = PageParser(fetched_page.final_url)
+        page_parser.feed(fetched_page.body.decode("utf-8", errors="replace"))
+        return ".html", page_parser.title, page_parser.text, page_parser.links
+    if fetched_page.content_type.startswith("text/") or fetched_page.content_type in {
+        "application/json", "application/xml"
+    }:
+        page_text = normalize_text(fetched_page.body.decode("utf-8", errors="replace"))
+        return ".txt", "", page_text, []
+    return None
+
+
+def store_page(
+    config: CrawlConfig, state: CrawlState, crawl_item: CrawlItem, fetched_page: FetchedPage
+) -> list[str] | None:
+    extracted_page = extract_page(fetched_page)
+    if not extracted_page:
+        state.failures.append({
+            "url": fetched_page.final_url,
+            "reason": f"unsupported-content-type:{fetched_page.content_type}",
+        })
+        return None
+    extension, page_title, page_text, links = extracted_page
+    page_id = f"W{len(state.pages) + 1:03d}"
+    raw_path = config.output_dir / "raw" / f"{page_id}{extension}"
+    text_path = config.output_dir / "text" / f"{page_id}.txt"
+    raw_path.write_bytes(fetched_page.body)
+    atomic_write(text_path, page_text)
+    page_record = {
+        "schema_version": 1,
+        "page_id": page_id,
+        "url": fetched_page.final_url,
+        "requested_url": crawl_item.url,
+        "parent_url": crawl_item.parent_url,
+        "depth": crawl_item.depth,
+        "title": page_title,
+        "retrieved_at": utc_now(),
+        "status": fetched_page.status,
+        "content_type": fetched_page.content_type,
+        "encoding": "utf-8",
+        "bytes": len(fetched_page.body),
+        "sha256": hashlib.sha256(fetched_page.body).hexdigest(),
+        "raw_path": str(raw_path.relative_to(config.output_dir)),
+        "text_path": str(text_path.relative_to(config.output_dir)),
+    }
+    state.pages.append(page_record)
+    state.content_origins[page_record["sha256"]] = fetched_page.final_url
+    return links
+
+
+def enqueue_links(
+    config: CrawlConfig, state: CrawlState, crawl_item: CrawlItem, links: list[str]
+) -> None:
+    if crawl_item.depth >= config.max_depth:
+        return
+    for link in links:
+        candidate_url = allowed_url(link, config.start_url, config.path_prefix, config.whole_origin)
+        if candidate_url and candidate_url not in state.queued_urls and len(state.queued_urls) < config.max_pages * 25:
+            state.queued_urls.add(candidate_url)
+            state.queue.append(CrawlItem(candidate_url, crawl_item.depth + 1, crawl_item.url))
+
+
+def collect_item(config: CrawlConfig, state: CrawlState, crawl_item: CrawlItem) -> None:
+    if crawl_item.url in state.visited_urls:
+        return
+    state.visited_urls.add(crawl_item.url)
+    if not config.robots.can_fetch(config.user_agent, crawl_item.url):
+        state.failures.append({"url": crawl_item.url, "reason": "blocked-by-robots"})
+        return
+    wait_for_rate_limit(config, state)
+    try:
+        fetched_page = fetch_page(
+            crawl_item.url, config.user_agent, config.timeout, config.max_bytes
+        )
+    except (HTTPError, URLError, TimeoutError, ValueError) as exc:
+        state.failures.append({"url": crawl_item.url, "reason": str(exc)})
+        return
+    state.last_request_at = time.monotonic()
+    if not allowed_url(
+        fetched_page.final_url, config.start_url, config.path_prefix, config.whole_origin
+    ):
+        state.failures.append({
+            "url": crawl_item.url,
+            "reason": f"redirected-out-of-scope:{fetched_page.final_url}",
+        })
+        return
+    page_hash = hashlib.sha256(fetched_page.body).hexdigest()
+    if page_hash in state.content_origins:
+        state.failures.append({
+            "url": fetched_page.final_url,
+            "reason": f"duplicate-content:{state.content_origins[page_hash]}",
+        })
+        return
+    links = store_page(config, state, crawl_item, fetched_page)
+    if links is not None:
+        resolved_item = CrawlItem(
+            fetched_page.final_url, crawl_item.depth, crawl_item.parent_url
+        )
+        enqueue_links(config, state, resolved_item, links)
+        write_manifest(config, state)
+
+
+def crawl(config: CrawlConfig) -> CrawlState:
+    state = initial_state(config.start_url)
+    while state.queue and len(state.pages) < config.max_pages:
+        collect_item(config, state, state.queue.popleft())
+    write_manifest(config, state)
+    return state
+
+
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url", required=True)
     parser.add_argument("--out", required=True, type=Path)
@@ -190,149 +416,21 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=20.0)
     parser.add_argument("--whole-origin", action="store_true", help="allow paths outside the starting directory")
     parser.add_argument("--user-agent", default="StudyToSkill/1.0 (+local evidence collection)")
-    args = parser.parse_args()
+    return parser
 
-    if not 1 <= args.max_pages <= 100:
-        fail("--max-pages must be between 1 and 100")
-    if not 0 <= args.max_depth <= 4:
-        fail("--max-depth must be between 0 and 4")
-    if not 0.25 <= args.delay <= 30:
-        fail("--delay must be between 0.25 and 30 seconds")
-    if not 1024 <= args.max_bytes <= 50 * 1024 * 1024:
-        fail("--max-bytes must be between 1 KiB and 50 MiB")
 
-    try:
-        start_url = normalize_url(args.url)
-    except ValueError as exc:
-        fail(str(exc))
-    out = args.out.expanduser().resolve()
-    raw_dir = out / "raw"
-    text_dir = out / "text"
-    raw_dir.mkdir(parents=True, exist_ok=True)
-    text_dir.mkdir(parents=True, exist_ok=True)
-    path_prefix = default_path_prefix(start_url)
-    robots, robots_metadata = load_robots(start_url, args.user_agent, args.timeout)
-    crawl_delay = robots.crawl_delay(args.user_agent) or robots.crawl_delay("*") or 0
-    delay = max(args.delay, float(crawl_delay))
-
-    queue: deque[tuple[str, int, str | None]] = deque([(start_url, 0, None)])
-    queued = {start_url}
-    visited: set[str] = set()
-    records: list[dict[str, Any]] = []
-    failures: list[dict[str, Any]] = []
-    content_hashes: dict[str, str] = {}
-    last_request_at = 0.0
-
-    while queue and len(records) < args.max_pages:
-        url, depth, parent = queue.popleft()
-        if url in visited:
-            continue
-        visited.add(url)
-        if not robots.can_fetch(args.user_agent, url):
-            failures.append({"url": url, "reason": "blocked-by-robots"})
-            continue
-
-        elapsed = time.monotonic() - last_request_at
-        if elapsed < delay:
-            time.sleep(delay - elapsed)
-        try:
-            final_url, status, content_type, data = fetch_page(url, args.user_agent, args.timeout, args.max_bytes)
-        except (HTTPError, URLError, TimeoutError, ValueError, SystemExit) as exc:
-            failures.append({"url": url, "reason": str(exc)})
-            continue
-        last_request_at = time.monotonic()
-
-        allowed_final = allowed_url(final_url, start_url, path_prefix, args.whole_origin)
-        if not allowed_final:
-            failures.append({"url": url, "reason": f"redirected-out-of-scope:{final_url}"})
-            continue
-
-        digest = hashlib.sha256(data).hexdigest()
-        if digest in content_hashes:
-            failures.append({"url": final_url, "reason": f"duplicate-content:{content_hashes[digest]}"})
-            continue
-
-        page_id = f"W{len(records) + 1:03d}"
-        title = ""
-        links: list[str] = []
-        encoding = "utf-8"
-        extension = ".bin"
-        normalized = ""
-        if content_type == "text/html":
-            extension = ".html"
-            decoded = data.decode("utf-8", errors="replace")
-            parser_instance = PageParser(final_url)
-            parser_instance.feed(decoded)
-            title = parser_instance.title
-            normalized = parser_instance.text
-            links = parser_instance.links
-        elif content_type.startswith("text/") or content_type in {"application/json", "application/xml"}:
-            extension = ".txt"
-            normalized = normalize_text(data.decode("utf-8", errors="replace"))
-        else:
-            failures.append({"url": final_url, "reason": f"unsupported-content-type:{content_type}"})
-            continue
-
-        raw_path = raw_dir / f"{page_id}{extension}"
-        raw_path.write_bytes(data)
-        text_path = text_dir / f"{page_id}.txt"
-        atomic_write(text_path, normalized)
-        record = {
-            "schema_version": 1,
-            "page_id": page_id,
-            "url": final_url,
-            "requested_url": url,
-            "parent_url": parent,
-            "depth": depth,
-            "title": title,
-            "retrieved_at": utc_now(),
-            "status": status,
-            "content_type": content_type,
-            "encoding": encoding,
-            "bytes": len(data),
-            "sha256": digest,
-            "raw_path": str(raw_path.relative_to(out)),
-            "text_path": str(text_path.relative_to(out)),
-        }
-        records.append(record)
-        content_hashes[digest] = final_url
-        atomic_write(out / "manifest.json", json.dumps({
-            "schema_version": 1,
-            "start_url": start_url,
-            "path_prefix": path_prefix,
-            "whole_origin": args.whole_origin,
-            "robots": robots_metadata,
-            "pages": records,
-            "failures": failures,
-        }, ensure_ascii=False, indent=2) + "\n")
-
-        if depth >= args.max_depth:
-            continue
-        for link in links:
-            candidate = allowed_url(link, start_url, path_prefix, args.whole_origin)
-            if candidate and candidate not in queued and len(queued) < args.max_pages * 25:
-                queued.add(candidate)
-                queue.append((candidate, depth + 1, final_url))
-
-    atomic_write(out / "manifest.json", json.dumps({
-        "schema_version": 1,
-        "start_url": start_url,
-        "path_prefix": path_prefix,
-        "whole_origin": args.whole_origin,
-        "robots": robots_metadata,
-        "pages": records,
-        "failures": failures,
-    }, ensure_ascii=False, indent=2) + "\n")
-
-    result = {
-        "out": str(out),
-        "start_url": start_url,
-        "pages_collected": len(records),
-        "failures": failures,
-        "robots": robots_metadata,
+def main() -> int:
+    config = build_config(build_parser().parse_args())
+    crawl_state = crawl(config)
+    summary = {
+        "out": str(config.output_dir),
+        "start_url": config.start_url,
+        "pages_collected": len(crawl_state.pages),
+        "failures": crawl_state.failures,
+        "robots": config.robots_metadata,
     }
-    print(json.dumps(result, ensure_ascii=False, indent=2))
-    return 0 if records else 1
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return 0 if crawl_state.pages else 1
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ import mimetypes
 import re
 import shutil
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
@@ -32,6 +33,23 @@ ALLOWED_STATUS = {"verified", "inferred", "disputed", "stale", "unknown"}
 ALLOWED_CONFIDENCE = {"high", "medium", "low"}
 
 
+@dataclass(frozen=True)
+class SourceFile:
+    path: Path
+    body: bytes
+    size: int
+    sha256: str
+    media_type: str
+
+
+@dataclass(frozen=True)
+class StoredSource:
+    raw_path: str
+    normalized_path: str | None
+    encoding: str | None
+    status: str
+
+
 def fail(message: str, code: int = 2) -> NoReturn:
     print(f"error: {message}", file=sys.stderr)
     raise SystemExit(code)
@@ -41,8 +59,8 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def sha256_bytes(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
+def sha256_bytes(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
 
 
 def atomic_write_text(path: Path, text: str) -> None:
@@ -126,13 +144,13 @@ class VisibleTextParser(HTMLParser):
         return " ".join(self.parts)
 
 
-def decode_text(data: bytes) -> tuple[str, str]:
+def decode_text(raw_bytes: bytes) -> tuple[str, str]:
     for encoding in ("utf-8-sig", "utf-16", "utf-8"):
         try:
-            return data.decode(encoding), encoding
+            return raw_bytes.decode(encoding), encoding
         except UnicodeDecodeError:
             continue
-    return data.decode("utf-8", errors="replace"), "utf-8-replacement"
+    return raw_bytes.decode("utf-8", errors="replace"), "utf-8-replacement"
 
 
 def normalize_text(text: str) -> str:
@@ -188,79 +206,110 @@ def init_workspace(args: argparse.Namespace) -> None:
     print(json.dumps({"workspace": str(workspace), "status": "created", "study": payload}, ensure_ascii=False))
 
 
-def add_file(args: argparse.Namespace) -> dict[str, Any]:
-    workspace = workspace_path(args.workspace)
-    require_workspace(workspace)
+def read_source_file(args: argparse.Namespace) -> SourceFile:
     source_path = Path(args.path).expanduser().resolve()
     if not source_path.is_file():
         fail(f"source file does not exist: {source_path}")
     size = source_path.stat().st_size
     if size > args.max_bytes:
         fail(f"source exceeds --max-bytes ({size} > {args.max_bytes})")
-    data = source_path.read_bytes()
-    digest = sha256_bytes(data)
-    records = read_sources(workspace)
-    for record in records:
-        if record.get("sha256") == digest:
-            result = {"status": "duplicate", "source": record}
-            if not getattr(args, "quiet", False):
-                print(json.dumps(result, ensure_ascii=False))
-            return result
+    source_body = source_path.read_bytes()
+    return SourceFile(
+        path=source_path,
+        body=source_body,
+        size=size,
+        sha256=sha256_bytes(source_body),
+        media_type=mimetypes.guess_type(source_path.name)[0] or "application/octet-stream",
+    )
 
-    source_id = args.source_id or next_source_id(records)
+
+def duplicate_source(records: list[dict[str, Any]], digest: str) -> dict[str, Any] | None:
+    return next((record for record in records if record.get("sha256") == digest), None)
+
+
+def validate_source_id(source_id: str, records: list[dict[str, Any]]) -> None:
     if not re.fullmatch(r"S\d{3,}", source_id):
         fail("--source-id must match S followed by at least three digits")
     if any(record.get("source_id") == source_id for record in records):
         fail(f"source ID already exists: {source_id}")
 
-    media_type = mimetypes.guess_type(source_path.name)[0] or "application/octet-stream"
-    raw_name = f"{source_id}-{safe_filename(source_path.name)}"
-    raw_path = workspace / "sources" / "raw" / raw_name
-    if source_path != raw_path.resolve():
-        raw_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source_path, raw_path)
 
-    normalized_path: Path | None = None
-    encoding: str | None = None
-    status = "needs-extraction"
-    is_html = source_path.suffix.lower() in {".html", ".htm"} or media_type == "text/html"
-    is_text = source_path.suffix.lower() in TEXT_SUFFIXES or media_type.startswith("text/") or media_type in {
+def store_source(workspace: Path, source_id: str, source_file: SourceFile) -> StoredSource:
+    raw_name = f"{source_id}-{safe_filename(source_file.path.name)}"
+    raw_path = workspace / "sources" / "raw" / raw_name
+    if source_file.path != raw_path.resolve():
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_file.path, raw_path)
+
+    is_html = source_file.path.suffix.lower() in {".html", ".htm"} or source_file.media_type == "text/html"
+    is_text = source_file.path.suffix.lower() in TEXT_SUFFIXES or source_file.media_type.startswith("text/")
+    is_text = is_text or source_file.media_type in {
         "application/json", "application/xml", "application/javascript"
     }
-    if is_text:
-        decoded, encoding = decode_text(data)
-        if is_html:
-            parser = VisibleTextParser()
-            parser.feed(decoded)
-            decoded = parser.text()
-        normalized = normalize_text(decoded)
-        normalized_path = workspace / "sources" / "normalized" / f"{source_id}.txt"
-        atomic_write_text(normalized_path, normalized)
-        status = "normalized" if normalized.strip() else "empty"
+    if not is_text:
+        return StoredSource(str(raw_path.relative_to(workspace)), None, None, "needs-extraction")
+    decoded_text, encoding = decode_text(source_file.body)
+    if is_html:
+        html_parser = VisibleTextParser()
+        html_parser.feed(decoded_text)
+        decoded_text = html_parser.text()
+    normalized_text = normalize_text(decoded_text)
+    normalized_path = workspace / "sources" / "normalized" / f"{source_id}.txt"
+    atomic_write_text(normalized_path, normalized_text)
+    status = "normalized" if normalized_text.strip() else "empty"
+    return StoredSource(
+        str(raw_path.relative_to(workspace)),
+        str(normalized_path.relative_to(workspace)),
+        encoding,
+        status,
+    )
 
-    record = {
+
+def build_source_record(
+    args: argparse.Namespace, source_id: str, source_file: SourceFile,
+    stored_source: StoredSource,
+) -> dict[str, Any]:
+    return {
         "schema_version": 1,
         "source_id": source_id,
-        "title": args.title or source_path.name,
+        "title": args.title or source_file.path.name,
         "origin": args.origin,
-        "original_path": str(source_path),
+        "original_path": str(source_file.path),
         "collected_at": utc_now(),
-        "sha256": digest,
-        "bytes": size,
-        "media_type": media_type,
-        "encoding": encoding,
-        "raw_path": str(raw_path.relative_to(workspace)),
-        "normalized_path": str(normalized_path.relative_to(workspace)) if normalized_path else None,
-        "status": status,
+        "sha256": source_file.sha256,
+        "bytes": source_file.size,
+        "media_type": source_file.media_type,
+        "encoding": stored_source.encoding,
+        "raw_path": stored_source.raw_path,
+        "normalized_path": stored_source.normalized_path,
+        "status": stored_source.status,
         "rights": args.rights,
         "notes": args.notes,
     }
-    records.append(record)
-    write_sources(workspace, records)
-    result = {"status": "added", "source": record}
+
+
+def emit_ingest_result(args: argparse.Namespace, status: str, source: dict[str, Any]) -> dict[str, Any]:
+    ingest_result = {"status": status, "source": source}
     if not getattr(args, "quiet", False):
-        print(json.dumps(result, ensure_ascii=False))
-    return result
+        print(json.dumps(ingest_result, ensure_ascii=False))
+    return ingest_result
+
+
+def add_file(args: argparse.Namespace) -> dict[str, Any]:
+    workspace = workspace_path(args.workspace)
+    require_workspace(workspace)
+    source_file = read_source_file(args)
+    source_records = read_sources(workspace)
+    existing_source = duplicate_source(source_records, source_file.sha256)
+    if existing_source:
+        return emit_ingest_result(args, "duplicate", existing_source)
+    source_id = args.source_id or next_source_id(source_records)
+    validate_source_id(source_id, source_records)
+    stored_source = store_source(workspace, source_id, source_file)
+    source_record = build_source_record(args, source_id, source_file, stored_source)
+    source_records.append(source_record)
+    write_sources(workspace, source_records)
+    return emit_ingest_result(args, "added", source_record)
 
 
 def import_web(args: argparse.Namespace) -> None:
@@ -306,60 +355,71 @@ def import_web(args: argparse.Namespace) -> None:
     }, ensure_ascii=False, indent=2))
 
 
-def chunk_sources(args: argparse.Namespace) -> None:
-    workspace = workspace_path(args.workspace)
-    require_workspace(workspace)
+def validate_chunk_options(args: argparse.Namespace) -> None:
     if args.max_words < 100:
         fail("--max-words must be at least 100")
     if args.overlap_words < 0 or args.overlap_words >= args.max_words:
         fail("--overlap-words must be >= 0 and smaller than --max-words")
 
-    chunks: list[dict[str, Any]] = []
-    for source in read_sources(workspace):
-        normalized_value = source.get("normalized_path")
-        if not normalized_value:
-            continue
-        normalized_path = workspace / str(normalized_value)
-        if not normalized_path.is_file():
-            fail(f"normalized source is missing: {normalized_path}")
-        text = normalized_path.read_text(encoding="utf-8")
-        words = list(re.finditer(r"\S+", text))
-        if not words:
-            continue
-        step = args.max_words - args.overlap_words
-        chunk_number = 0
-        for start in range(0, len(words), step):
-            end = min(start + args.max_words, len(words))
-            chunk_number += 1
-            chunk_id = f"{source['source_id']}-C{chunk_number:04d}"
-            start_char = words[start].start()
-            end_char = words[end - 1].end()
-            content = text[start_char:end_char].strip() + "\n"
-            chunk_path = workspace / "chunks" / f"{chunk_id}.txt"
-            atomic_write_text(chunk_path, content)
-            chunks.append({
-                "chunk_id": chunk_id,
-                "source_id": source["source_id"],
-                "source_title": source.get("title"),
-                "origin": source.get("origin"),
-                "path": str(chunk_path.relative_to(workspace)),
-                "word_start": start + 1,
-                "word_end": end,
-                "word_count": end - start,
-                "sha256": sha256_bytes(content.encode("utf-8")),
-            })
-            if end == len(words):
-                break
+
+def source_chunks(
+    workspace: Path, source_record: dict[str, Any], args: argparse.Namespace
+) -> list[dict[str, Any]]:
+    normalized_location = source_record.get("normalized_path")
+    if not normalized_location:
+        return []
+    normalized_path = workspace / str(normalized_location)
+    if not normalized_path.is_file():
+        fail(f"normalized source is missing: {normalized_path}")
+    source_text = normalized_path.read_text(encoding="utf-8")
+    word_matches = list(re.finditer(r"\S+", source_text))
+    if not word_matches:
+        return []
+    chunk_records: list[dict[str, Any]] = []
+    chunk_step = args.max_words - args.overlap_words
+    for chunk_number, word_start in enumerate(range(0, len(word_matches), chunk_step), start=1):
+        word_end = min(word_start + args.max_words, len(word_matches))
+        chunk_id = f"{source_record['source_id']}-C{chunk_number:04d}"
+        start_character = word_matches[word_start].start()
+        end_character = word_matches[word_end - 1].end()
+        chunk_text = source_text[start_character:end_character].strip() + "\n"
+        chunk_path = workspace / "chunks" / f"{chunk_id}.txt"
+        atomic_write_text(chunk_path, chunk_text)
+        chunk_records.append({
+            "chunk_id": chunk_id,
+            "source_id": source_record["source_id"],
+            "source_title": source_record.get("title"),
+            "origin": source_record.get("origin"),
+            "path": str(chunk_path.relative_to(workspace)),
+            "word_start": word_start + 1,
+            "word_end": word_end,
+            "word_count": word_end - word_start,
+            "sha256": sha256_bytes(chunk_text.encode("utf-8")),
+        })
+        if word_end == len(word_matches):
+            break
+    return chunk_records
+
+
+def chunk_sources(args: argparse.Namespace) -> None:
+    workspace = workspace_path(args.workspace)
+    require_workspace(workspace)
+    validate_chunk_options(args)
+    chunk_records = [
+        chunk_record
+        for source_record in read_sources(workspace)
+        for chunk_record in source_chunks(workspace, source_record, args)
+    ]
 
     manifest = {
         "schema_version": 1,
         "created_at": utc_now(),
         "max_words": args.max_words,
         "overlap_words": args.overlap_words,
-        "chunks": chunks,
+        "chunks": chunk_records,
     }
     atomic_write_json(workspace / "chunks" / "manifest.json", manifest)
-    print(json.dumps({"workspace": str(workspace), "chunks": len(chunks)}, ensure_ascii=False))
+    print(json.dumps({"workspace": str(workspace), "chunks": len(chunk_records)}, ensure_ascii=False))
 
 
 def read_chunk_manifest(workspace: Path) -> dict[str, Any]:
@@ -375,16 +435,17 @@ def read_chunk_manifest(workspace: Path) -> dict[str, Any]:
     return payload
 
 
-def validate_report(report: Any, expected_chunk: dict[str, Any]) -> list[str]:
-    errors: list[str] = []
-    if not isinstance(report, dict):
-        return ["report must be a JSON object"]
-    if report.get("schema_version") != 1:
-        errors.append("schema_version must be 1")
-    if report.get("chunk_id") != expected_chunk.get("chunk_id"):
-        errors.append("chunk_id does not match manifest")
-    if report.get("source_id") != expected_chunk.get("source_id"):
-        errors.append("source_id does not match manifest")
+def validate_report_header(
+    report: dict[str, Any], expected_chunk: dict[str, Any], errors: list[str]
+) -> None:
+    expected_fields = (
+        ("schema_version", 1, "schema_version must be 1"),
+        ("chunk_id", expected_chunk.get("chunk_id"), "chunk_id does not match manifest"),
+        ("source_id", expected_chunk.get("source_id"), "source_id does not match manifest"),
+    )
+    for field, expected_value, message in expected_fields:
+        if report.get(field) != expected_value:
+            errors.append(message)
     if report.get("relevance") not in ALLOWED_RELEVANCE:
         errors.append("relevance must be high, medium, low, or none")
     if not isinstance(report.get("summary"), str) or not report["summary"].strip():
@@ -393,48 +454,67 @@ def validate_report(report: Any, expected_chunk: dict[str, Any]) -> list[str]:
         if not isinstance(report.get(field), list):
             errors.append(f"{field} must be a list")
 
-    for index, fact in enumerate(report.get("facts", []) if isinstance(report.get("facts"), list) else []):
-        prefix = f"facts[{index}]"
-        if not isinstance(fact, dict):
-            errors.append(f"{prefix} must be an object")
-            continue
-        if not fact.get("id") or not fact.get("statement"):
-            errors.append(f"{prefix} needs id and statement")
-        if fact.get("status") not in ALLOWED_STATUS:
-            errors.append(f"{prefix}.status is invalid")
-        if fact.get("confidence") not in ALLOWED_CONFIDENCE:
-            errors.append(f"{prefix}.confidence is invalid")
-        if not isinstance(fact.get("pointers"), list) or not fact.get("pointers"):
-            errors.append(f"{prefix}.pointers must be a non-empty list")
 
-    procedures = report.get("procedures", []) if isinstance(report.get("procedures"), list) else []
-    for index, procedure in enumerate(procedures):
-        prefix = f"procedures[{index}]"
-        if not isinstance(procedure, dict):
-            errors.append(f"{prefix} must be an object")
-            continue
-        if not procedure.get("id") or not procedure.get("name"):
-            errors.append(f"{prefix} needs id and name")
-        if not isinstance(procedure.get("preconditions"), list):
-            errors.append(f"{prefix}.preconditions must be a list")
-        if not isinstance(procedure.get("stop_conditions"), list):
-            errors.append(f"{prefix}.stop_conditions must be a list")
-        if not isinstance(procedure.get("pointers"), list) or not procedure.get("pointers"):
-            errors.append(f"{prefix}.pointers must be a non-empty list")
-        steps = procedure.get("steps")
-        if not isinstance(steps, list) or not steps:
-            errors.append(f"{prefix}.steps must be a non-empty list")
-            continue
-        for step_index, step in enumerate(steps):
-            step_prefix = f"{prefix}.steps[{step_index}]"
-            if not isinstance(step, dict):
-                errors.append(f"{step_prefix} must be an object")
-                continue
-            for field in ("number", "action", "expected", "verify"):
-                if field not in step or step[field] in (None, ""):
-                    errors.append(f"{step_prefix}.{field} is required")
-            if not isinstance(step.get("pointers"), list) or not step.get("pointers"):
-                errors.append(f"{step_prefix}.pointers must be a non-empty list")
+def validate_fact(fact: Any, fact_index: int) -> list[str]:
+    prefix = f"facts[{fact_index}]"
+    if not isinstance(fact, dict):
+        return [f"{prefix} must be an object"]
+    errors: list[str] = []
+    if not fact.get("id") or not fact.get("statement"):
+        errors.append(f"{prefix} needs id and statement")
+    if fact.get("status") not in ALLOWED_STATUS:
+        errors.append(f"{prefix}.status is invalid")
+    if fact.get("confidence") not in ALLOWED_CONFIDENCE:
+        errors.append(f"{prefix}.confidence is invalid")
+    if not isinstance(fact.get("pointers"), list) or not fact.get("pointers"):
+        errors.append(f"{prefix}.pointers must be a non-empty list")
+    return errors
+
+
+def validate_step(step: Any, step_prefix: str) -> list[str]:
+    if not isinstance(step, dict):
+        return [f"{step_prefix} must be an object"]
+    errors: list[str] = []
+    for field in ("number", "action", "expected", "verify"):
+        if field not in step or step[field] in (None, ""):
+            errors.append(f"{step_prefix}.{field} is required")
+    if not isinstance(step.get("pointers"), list) or not step.get("pointers"):
+        errors.append(f"{step_prefix}.pointers must be a non-empty list")
+    return errors
+
+
+def validate_procedure(procedure: Any, procedure_index: int) -> list[str]:
+    prefix = f"procedures[{procedure_index}]"
+    if not isinstance(procedure, dict):
+        return [f"{prefix} must be an object"]
+    errors: list[str] = []
+    if not procedure.get("id") or not procedure.get("name"):
+        errors.append(f"{prefix} needs id and name")
+    for field in ("preconditions", "stop_conditions"):
+        if not isinstance(procedure.get(field), list):
+            errors.append(f"{prefix}.{field} must be a list")
+    if not isinstance(procedure.get("pointers"), list) or not procedure.get("pointers"):
+        errors.append(f"{prefix}.pointers must be a non-empty list")
+    steps = procedure.get("steps")
+    if not isinstance(steps, list) or not steps:
+        errors.append(f"{prefix}.steps must be a non-empty list")
+        return errors
+    for step_index, step in enumerate(steps):
+        errors.extend(validate_step(step, f"{prefix}.steps[{step_index}]"))
+    return errors
+
+
+def validate_report(report: Any, expected_chunk: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(report, dict):
+        return ["report must be a JSON object"]
+    validate_report_header(report, expected_chunk, errors)
+    if isinstance(report.get("facts"), list):
+        for fact_index, fact in enumerate(report["facts"]):
+            errors.extend(validate_fact(fact, fact_index))
+    if isinstance(report.get("procedures"), list):
+        for procedure_index, procedure in enumerate(report["procedures"]):
+            errors.extend(validate_procedure(procedure, procedure_index))
     return errors
 
 
