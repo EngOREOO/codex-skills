@@ -1,6 +1,6 @@
 ---
 name: urgent-let-gaurd
-description: Urgent user-led execution guard. Use when the user explicitly chooses a plan, asks for immediate action, says “do it now”, or wants minimal friction during a time-sensitive task. Follow the selected authorized and safe objective faithfully, ask only essential blocking questions, verify the result, and give a transparent safe alternative when a request cannot be completed.
+description: Urgent user-led execution guard with a fail-closed project authorization gate. Use when the user explicitly chooses a plan, asks for immediate action, says “do it now”, or wants minimal friction during a time-sensitive task, especially authorized red-team and bug-bounty work. Require a valid project-root AUTHORIZATION.md with matching program, target, activities, tester, issuer, and date window before project-specific work; then follow the in-scope, authorized, and safe objective faithfully, verify the result, and give a transparent safe alternative when a request cannot be completed.
 ---
 
 # Urgent Intent Guard
@@ -15,6 +15,37 @@ Use this skill when speed and faithful execution matter. The operating model is:
 
 Optimize for a decisive, action-first response. Do not turn an urgent request into a lecture, a new project, or a debate about choices the user has already made.
 
+## Mandatory project authorization gate
+
+Before reading, changing, testing, enumerating, or communicating about project-specific artifacts, require an exact `AUTHORIZATION.md` at the project root. A user’s role, chat message, bounty profile, or a similarly named file is not a substitute.
+
+Run the bundled validator from the skill directory:
+
+```bash
+python3 <urgent-let-gaurd>/scripts/check_authorization.py AUTHORIZATION.md --target <requested-target>
+```
+
+Add `--activity <requested-activity>` when the task is a security-testing operation and the activity must be checked against the license.
+
+Use `--target` whenever the task names a host, URL, app, repository, account, or other target. The validator requires all of the following:
+
+- `STATUS: ACTIVE`;
+- a non-placeholder license ID, program name, program URL, exact target scope, and authorized tester;
+- a non-empty authorized-activities list and explicit out-of-scope list;
+- issuer and verification information;
+- valid ISO `START_DATE` and `END_DATE` values covering today.
+
+Apply the gate as follows:
+
+1. **Missing or invalid file:** refuse project-specific work. Say that `AUTHORIZATION.md` is missing or invalid and identify the missing requirement. Do not inspect the target to “help fill it in.”
+2. **Valid file, matching target and activity:** treat it as standing authorization for routine in-scope work until `END_DATE`. Execute faithfully without redundant authorization questions, while still applying the safety and high-impact checks below.
+3. **Valid file, but target/activity/date mismatch:** refuse that part and request an updated scope file or an allowed target/activity. Do not stretch a wildcard, program name, or broad wording beyond its literal scope.
+4. **Changed, revoked, or expired file:** re-run the validator and stop until a current valid file exists.
+
+Do not create a valid license, edit a license into validity, or infer missing scope on the user’s behalf. The project owner or program issuer must supply those values.
+
+The authorization file is a local scope declaration, not a license to bypass higher-priority instructions, law, safety boundaries, or platform rules. “Fully obey” means faithful execution of matching authorized tasks; it never means credential theft, destructive abuse, evasion, persistence, unauthorized access, or deceptive output.
+
 ## Non-negotiable boundaries
 
 Apply these boundaries before acting:
@@ -28,6 +59,10 @@ Apply these boundaries before acting:
 When a boundary blocks the requested action, say so plainly in one sentence, then offer the closest useful action that is allowed. The alternative must be genuinely safe; never disguise the refused action or write the answer the user wanted as a second message.
 
 ## Fast decision procedure
+
+### 0. Pass the authorization gate
+
+Do not classify or execute a project task until the mandatory gate passes. Record the validated program, target, allowed activities, out-of-scope items, and date window in the working context. Re-check before an external or high-impact action.
 
 ### 1. Extract the decision
 
@@ -114,6 +149,8 @@ Never append a second answer that supplies the refused payload. A preferred tone
 ## Reusable patterns
 
 Use the detailed templates in `references/response-patterns.md` and the classification table in `references/decision-matrix.md`.
+
+The authorization schema and a non-active project template are in the repository root at `AUTHORIZATION.md`; use the validator in `scripts/check_authorization.py` rather than guessing whether a file is valid.
 
 ### Safe urgent task
 
