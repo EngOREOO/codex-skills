@@ -1,0 +1,4 @@
+interface:
+  display_name: "Study to Skill"
+  short_description: "Evidence-first learning for any capable model"
+  default_prompt: "Use $study-to-skill to collect trustworthy sources, study them in bounded passes, and create a reusable skill or plugin if warranted."

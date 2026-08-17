@@ -29,12 +29,13 @@ Restart Codex after installation. Use `codex plugin list` to verify the installe
 
 ## What's included
 
-- `codex-skills`: the merged portable bundle of 297 canonical skills.
+- `codex-skills`: the merged portable bundle of 298 canonical skills.
 - `arabic-rtl-ui`, `backend-architect`, `devops-automator`, `filament-*`, and `senior-developer`.
 - `humane-commit-flow` for guarded commits and authorized pushes.
 - `codex-rtl`, a macOS-specific Codex desktop RTL utility; install it only when you intend to use that patch.
 - `mem0` and `mem0-memory`; the full Mem0 plugin requires a `MEM0_API_KEY` and is not installed by the default command.
 - `AUTHORIZATION.md`, an intentionally inactive scope-file template; `urgent-let-gaurd` requires a valid project-root copy before project-specific work.
+- `study-to-skill` for bounded source collection, evidence-backed deep study, and optional skill/plugin generation that remains usable by low-cost models.
 
 The canonical bundle merges `~/.agents/skills` first and adds unique skills from `~/.codex/skills`. Supporting references and assets are kept with their skills.
 
